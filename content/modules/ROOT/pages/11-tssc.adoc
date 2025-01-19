@@ -746,7 +746,7 @@ Changes to be committed:
 
 [source,sh,subs="attributes",role=execute]
 ----
-git commit -m "added an empty file"
+git commit -S -m "added an empty file"
 ----
 
 NOTE: Similarly to signing an image, you will be asked to open your browser to the OIDC System (in our case Keycloak) to authenticate. This is because you are working in an SSH session with no connection to your local computer, so it can't automatically open your browser. 
@@ -756,7 +756,7 @@ Please use the "signing user" *`jdoe@redhat.com`* with password *`secure`* again
 [.console-output]
 [source,bash,subs="+macros,+attributes"]
 ----
-[lab-user@bastion demo-apps]$ git commit -m "added an empty file"
+[lab-user@bastion demo-apps]$ git commit -S -m "added an empty file"
 error opening browser: exec: "xdg-open": executable file not found in $PATH
 Go to the following link in a browser:
 
@@ -818,7 +818,103 @@ image::11-gitlab-signature.png[unverified badge]
 
 ==== *Verifying a commit signature*
 
-//TODO
+First of all, let's use `git log` to take a look at the latest commits (a.k.a. the "_commit log_" or "_commit history_"):
+
+[source,sh,subs="attributes",role=execute]
+----
+git log -n 2 --show-signature 
+----
+
+[.console-output]
+[source,bash,subs="+macros,+attributes"]
+----
+[lab-user@bastion demo-apps]$ git log -n 2 --show-signature
+commit 0d0a353fbf00d73b4b0457ea8e3ae8180dbf11c2 (HEAD -> main, origin/main, origin/HEAD)
+tlog index: 4
+gitsign: Signature made using certificate ID 0xe22f9a952f8f9ae96253fbaf9b688f8fbddc4ff4 | CN=fulcio.hostname,O=Red Hat
+gitsign: Good signature from [jdoe@redhat.com](https://keycloak-rhsso.apps.cluster-47fg6.47fg6.sandbox2892.opentlc.com/auth/realms/openshift)
+Validated Git signature: true
+Validated Rekor entry: true
+Validated Certificate claims: false
+WARNING: git verify-commit does not verify cert claims. Prefer using `gitsign verify` instead.
+Author: Red Hat Demo Platform Student <lab-user@bastion.47fg6.internal>
+Date:   Fri Jan 17 18:49:39 2025 +0000
+
+    added empty file
+
+commit a26c6575e9ab8bc011d4dec3cc052c13493d9fcc
+tlog index: 3
+gitsign: Signature made using certificate ID 0xace3a9dfbd4b6c0b0d0bab00118e4c96317d9022 | CN=fulcio.hostname,O=Red Hat
+gitsign: Good signature from [jdoe@redhat.com](https://keycloak-rhsso.apps.cluster-47fg6.47fg6.sandbox2892.opentlc.com/auth/realms/openshift)
+Validated Git signature: true
+Validated Rekor entry: true
+Validated Certificate claims: false
+WARNING: git verify-commit does not verify cert claims. Prefer using `gitsign verify` instead.
+Author: Red Hat Demo Platform Student <lab-user@bastion.47fg6.internal>
+Date:   Fri Jan 17 18:04:39 2025 +0000
+
+    removed empty file
+----
+
+NOTE: This is just the `git log` - if you look closely you will see that it just says that there is a valid signature (from *Trusted Artifact Signer*: `Good signature from [jdoe@redhat.com]`) and that it corresponds to what has been stored in the transparency log (`Validated Rekor entry: true`). To fully verify the signature, we should use `gitsign verify` (as the output suggests).
+
+To verify that the latest commit has been signed by a certain OIDC identity, authenticated against a specific OIDC systemn, we will use `gitsign verify`:
+
+[source,sh,subs="attributes",role=execute]
+----
+gitsign verify --certificate-identity=jdoe@redhat.com --certificate-oidc-issuer=$SIGSTORE_OIDC_ISSUER HEAD
+----
+
+[.console-output]
+[source,bash,subs="+macros,+attributes"]
+----
+[lab-user@bastion demo-apps]$ gitsign verify --certificate-identity=jdoe@redhat.com --certificate-oidc-issuer=$SIGSTORE_OIDC_ISSUER HEAD
+tlog index: 4
+gitsign: Signature made using certificate ID 0xe22f9a952f8f9ae96253fbaf9b688f8fbddc4ff4 | CN=fulcio.hostname,O=Red Hat
+gitsign: Good signature from [jdoe@redhat.com](https://keycloak-rhsso.apps.cluster-47fg6.47fg6.sandbox2892.opentlc.com/auth/realms/openshift)
+Validated Git signature: true
+Validated Rekor entry: true
+Validated Certificate claims: true
+----
+
+TIP: Similarly to `cosign`, we can also use the `--certificate-identity-regexp` and/or `--certificate-oidc-issuer-regexp` parameters, checking that the latest commit (`HEAD`) has been signed by an email address (OIDC Identity) from Red Hat, authenticated by any OIDC system in the `opentlc.com` domain.
+
+[source,sh,subs="attributes",role=execute]
+----
+gitsign verify --certificate-identity-regexp ^[a-zA-Z0-9._%+-]+@redhat\.com$ --certificate-oidc-issuer-regexp .*opentlc\.com.* HEAD
+----
+
+[.console-output]
+[source,bash,subs="+macros,+attributes"]
+----
+[lab-user@bastion demo-apps]$ gitsign verify --certificate-identity-regexp ^[a-zA-Z0-9._%+-]+@redhat\.com$ --certificate-oidc-issuer-regexp .*opentlc\.com.* HEAD
+tlog index: 4
+gitsign: Signature made using certificate ID 0xe22f9a952f8f9ae96253fbaf9b688f8fbddc4ff4 | CN=fulcio.hostname,O=Red Hat
+gitsign: Good signature from [jdoe@redhat.com](https://keycloak-rhsso.apps.cluster-47fg6.47fg6.sandbox2892.opentlc.com/auth/realms/openshift)
+Validated Git signature: true
+Validated Rekor entry: true
+Validated Certificate claims: true
+----
+
+TIP: Instead of `HEAD` you can also verify a specific commit by replacing `HEAD` with a commit ID in the previous command:
+
+[.console-output]
+[source,bash,subs="+macros,+attributes"]
+----
+[lab-user@bastion demo-apps]$ git log -n 3 --oneline
+0d0a353 (HEAD -> main, origin/main, origin/HEAD) added empty file
+a26c657 removed empty file
+390aeb4 added an empty file
+
+[lab-user@bastion demo-apps]$ gitsign verify --certificate-identity-regexp ^[a-zA-Z0-9._%+-]+@redhat\.com$ --certificate-oidc-issuer-regexp .*opentlc\.com.* a26c657
+tlog index: 3
+gitsign: Signature made using certificate ID 0xace3a9dfbd4b6c0b0d0bab00118e4c96317d9022 | CN=fulcio.hostname,O=Red Hat
+gitsign: Good signature from [jdoe@redhat.com](https://keycloak-rhsso.apps.cluster-47fg6.47fg6.sandbox2892.opentlc.com/auth/realms/openshift)
+Validated Git signature: true
+Validated Rekor entry: true
+Validated Certificate claims: true
+----
+
 
 
 
@@ -1025,15 +1121,23 @@ more openjdk-11-flawed.spdx
 
 === *Using the Trusted Profile Analyzer UI*
 
-A Red Hat Trusted Profile Analyzer has been created for you to use. The proctor will make the URL available to you once you've completed the previous section. 
+A Red Hat Trusted Profile Analyzer has been created for you to use. 
 
-When you are given the URL, log into the RHTPA UI using the username and password provided.
+You can access it => {tpa_console_url}[here^]
 
-image::lab1.1-tpa.png[]
+[cols="2,2"]
+|===
+|*TPA Username:* | {tpa_username} |
+*TPA Password:* | {tpa_password} |
+|===
+
+Please log into the RHTPA UI using the username and password provided above.
+
+image::lab11.1-tpa.png[]
 
 You can search for an SBOM, advisory, or CVE directly from the home page, or you can click on Search in the left menu for further options. 
 
-image::lab1.2-tpa.gif[]
+//image::lab1.2-tpa.gif[]
 
 From the Search page, you can choose to browse SBOMs, Packages, CVEs, and Advisories from the Tabs, and further filter using the filter menu on the left. 
 
